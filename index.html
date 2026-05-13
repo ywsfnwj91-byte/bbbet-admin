@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>S-GEN Admin Panel</title>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+    
+    <style>
+        :root {
+            --primary: #ff8c00;
+            --bg: #0f0f0f;
+            --card: #1a1a1a;
+            --text: #ffffff;
+            --accent: #00d4ff;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            overflow: hidden;
+        }
+
+        /* الخلفية المتحركة */
+        .bg-animate {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: radial-gradient(circle at center, #222 0%, #0f0f0f 100%);
+            z-index: -1;
+        }
+
+        .container {
+            width: 90%;
+            max-width: 450px;
+            background: var(--card);
+            padding: 30px;
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            border: 1px solid #333;
+            transition: all 0.5s ease;
+            position: relative;
+        }
+
+        h2 { text-align: center; margin-bottom: 25px; color: var(--primary); text-transform: uppercase; letter-spacing: 2px; }
+
+        .input-group { margin-bottom: 20px; position: relative; }
+
+        input {
+            width: 100%;
+            padding: 15px;
+            background: #252525;
+            border: 2px solid transparent;
+            border-radius: 10px;
+            color: white;
+            font-size: 16px;
+            outline: none;
+            transition: 0.3s;
+            text-align: center;
+        }
+
+        input:focus { border-color: var(--primary); box-shadow: 0 0 15px rgba(255, 140, 0, 0.3); }
+
+        button {
+            width: 100%;
+            padding: 15px;
+            border: none;
+            border-radius: 10px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: 0.3s;
+            font-size: 16px;
+            margin-top: 10px;
+        }
+
+        .btn-search { background: var(--primary); color: white; }
+        .btn-search:hover { transform: translateY(-3px); box-shadow: 0 5px 15px rgba(255,140,0,0.4); }
+
+        /* واجهة المعلومات (مخفية في البداية) */
+        #user-info { display: none; margin-top: 20px; animation: slideUp 0.5s ease; }
+
+        @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+
+        .info-card {
+            background: #222;
+            padding: 15px;
+            border-radius: 15px;
+            margin-bottom: 20px;
+            border-right: 5px solid var(--accent);
+        }
+
+        .info-item { display: flex; justify-content: space-between; margin-bottom: 10px; font-size: 18px; }
+        .label { color: #888; }
+        .value { color: var(--accent); font-weight: bold; }
+
+        .actions { display: flex; gap: 10px; }
+        .btn-add { background: #28a745; color: white; flex: 1; }
+        .btn-sub { background: #dc3545; color: white; flex: 1; }
+
+        .loading { display: none; text-align: center; margin: 10px; color: var(--primary); }
+
+    </style>
+</head>
+<body>
+
+<div class="bg-animate"></div>
+
+<div class="container">
+    <h2>S-GEN ADMIN</h2>
+    
+    <div id="search-view">
+        <div class="input-group">
+            <input type="number" id="search-id" placeholder="أدخل ID المستخدم">
+        </div>
+        <button class="btn-search" onclick="searchUser()">بحث عن المستخدم</button>
+        <div id="loader" class="loading">جاري البحث...</div>
+    </div>
+
+    <div id="user-info">
+        <div class="info-card">
+            <div class="info-item">
+                <span class="label">ID المستخدم:</span>
+                <span class="value" id="disp-id">000000</span>
+            </div>
+            <div class="info-item">
+                <span class="label">الرصيد الحالي:</span>
+                <span class="value" id="disp-wallet">0</span>
+            </div>
+        </div>
+
+        <div class="input-group">
+            <input type="number" id="amount" placeholder="المبلغ">
+        </div>
+
+        <div class="actions">
+            <button class="btn-add" onclick="updateMoney('add')">شحن رصيد</button>
+            <button class="btn-sub" onclick="updateMoney('sub')">سحب رصيد</button>
+        </div>
+        
+        <button style="background: transparent; color: #555; font-size: 12px;" onclick="location.reload()">رجوع للبحث</button>
+    </div>
+</div>
+
+<script>
+    // بيانات الفايربيس من ملفك
+    const firebaseConfig = {
+        apiKey: "AIzaSyCAdioWu9Luc-5db2jR6g1Xx-AZYRZPblQ",
+        databaseURL: "https://gghh-cf9dd-default-rtdb.firebaseio.com",
+        projectId: "gghh-cf9dd",
+    };
+    
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+    let currentUID = "";
+    let currentWallet = 0;
+
+    function searchUser() {
+        const idInput = document.getElementById('search-id').value;
+        const loader = document.getElementById('loader');
+        
+        if(!idInput) return alert("اكتب ID الأول يا برنس");
+        
+        loader.style.display = "block";
+
+        // البحث في كل المستخدمين عن الـ ID المطلوب
+        db.ref('users').once('value', (snapshot) => {
+            let found = false;
+            snapshot.forEach((childSnapshot) => {
+                const data = childSnapshot.val();
+                if (data.id == idInput) {
+                    found = true;
+                    currentUID = childSnapshot.key;
+                    currentWallet = parseInt(data.wallet) || 0;
+                    showInfo(data);
+                }
+            });
+            
+            loader.style.display = "none";
+            if(!found) alert("الـ ID ده مش موجود في السيستم!");
+        });
+    }
+
+    function showInfo(data) {
+        document.getElementById('search-view').style.display = "none";
+        document.getElementById('user-info').style.display = "block";
+        document.getElementById('disp-id').innerText = data.id;
+        document.getElementById('disp-wallet').innerText = data.wallet + " $";
+    }
+
+    function updateMoney(type) {
+        const amount = parseInt(document.getElementById('amount').value);
+        if(!amount || amount <= 0) return alert("اكتب مبلغ عدل!");
+
+        let newTotal = type === 'add' ? currentWallet + amount : currentWallet - amount;
+        
+        if(newTotal < 0) return alert("الرصيد ما ينفعش يكون بالسالب!");
+
+        db.ref('users/' + currentUID).update({
+            wallet: newTotal.toString()
+        }).then(() => {
+            currentWallet = newTotal;
+            document.getElementById('disp-wallet').innerText = newTotal + " $";
+            alert(type === 'add' ? "تم الشحن بنجاح! ✅" : "تم السحب بنجاح! ✅");
+            document.getElementById('amount').value = "";
+        }).catch((err) => {
+            alert("حصل مشكلة: " + err.message);
+        });
+    }
+</script>
+
+</body>
+</html>
